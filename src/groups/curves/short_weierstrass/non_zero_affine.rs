@@ -9,7 +9,8 @@ use ark_std::ops::Add;
 #[must_use]
 pub struct NonZeroAffineVar<
     P: SWModelParameters,
-    F: FieldVar<P::BaseField, <P::BaseField as Field>::BasePrimeField>,
+    ConstraintF: PrimeField,
+    F: FieldVar<P::BaseField, ConstraintF>,
 > where
     for<'a> &'a F: FieldOpsBounds<'a, P::BaseField, F>,
 {
@@ -19,12 +20,15 @@ pub struct NonZeroAffineVar<
     pub y: F,
     #[derivative(Debug = "ignore")]
     _params: PhantomData<P>,
+    #[derivative(Debug = "ignore")]
+    _params_cf: PhantomData<ConstraintF>,
 }
 
-impl<P, F> NonZeroAffineVar<P, F>
+impl<P, ConstraintF, F> NonZeroAffineVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
-    F: FieldVar<P::BaseField, <P::BaseField as Field>::BasePrimeField>,
+    ConstraintF: PrimeField,
+    F: FieldVar<P::BaseField, ConstraintF>,
     for<'a> &'a F: FieldOpsBounds<'a, P::BaseField, F>,
 {
     pub fn new(x: F, y: F) -> Self {
@@ -32,12 +36,13 @@ where
             x,
             y,
             _params: PhantomData,
+            _params_cf: PhantomData,
         }
     }
 
     /// Converts self into a non-zero projective point.
     #[tracing::instrument(target = "r1cs", skip(self))]
-    pub fn into_projective(&self) -> ProjectiveVar<P, F> {
+    pub fn into_projective(&self) -> ProjectiveVar<P, ConstraintF, F> {
         ProjectiveVar::new(self.x.clone(), self.y.clone(), F::one())
     }
 
@@ -138,15 +143,16 @@ where
     }
 }
 
-impl<P, F> R1CSVar<<P::BaseField as Field>::BasePrimeField> for NonZeroAffineVar<P, F>
+impl<P, ConstraintF, F> R1CSVar<ConstraintF> for NonZeroAffineVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
-    F: FieldVar<P::BaseField, <P::BaseField as Field>::BasePrimeField>,
+    ConstraintF: PrimeField,
+    F: FieldVar<P::BaseField, ConstraintF>,
     for<'a> &'a F: FieldOpsBounds<'a, P::BaseField, F>,
 {
     type Value = SWAffine<P>;
 
-    fn cs(&self) -> ConstraintSystemRef<<P::BaseField as Field>::BasePrimeField> {
+    fn cs(&self) -> ConstraintSystemRef<ConstraintF> {
         self.x.cs().or(self.y.cs())
     }
 
@@ -155,16 +161,17 @@ where
     }
 }
 
-impl<P, F> CondSelectGadget<<P::BaseField as Field>::BasePrimeField> for NonZeroAffineVar<P, F>
+impl<P, ConstraintF, F> CondSelectGadget<ConstraintF> for NonZeroAffineVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
-    F: FieldVar<P::BaseField, <P::BaseField as Field>::BasePrimeField>,
+    ConstraintF: PrimeField,
+    F: FieldVar<P::BaseField, ConstraintF>,
     for<'a> &'a F: FieldOpsBounds<'a, P::BaseField, F>,
 {
     #[inline]
     #[tracing::instrument(target = "r1cs")]
     fn conditionally_select(
-        cond: &Boolean<<P::BaseField as Field>::BasePrimeField>,
+        cond: &Boolean<ConstraintF>,
         true_value: &Self,
         false_value: &Self,
     ) -> Result<Self, SynthesisError> {
@@ -175,17 +182,15 @@ where
     }
 }
 
-impl<P, F> EqGadget<<P::BaseField as Field>::BasePrimeField> for NonZeroAffineVar<P, F>
+impl<P, ConstraintF, F> EqGadget<ConstraintF> for NonZeroAffineVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
-    F: FieldVar<P::BaseField, <P::BaseField as Field>::BasePrimeField>,
+    ConstraintF: PrimeField,
+    F: FieldVar<P::BaseField, ConstraintF>,
     for<'a> &'a F: FieldOpsBounds<'a, P::BaseField, F>,
 {
     #[tracing::instrument(target = "r1cs")]
-    fn is_eq(
-        &self,
-        other: &Self,
-    ) -> Result<Boolean<<P::BaseField as Field>::BasePrimeField>, SynthesisError> {
+    fn is_eq(&self, other: &Self) -> Result<Boolean<ConstraintF>, SynthesisError> {
         let x_equal = self.x.is_eq(&other.x)?;
         let y_equal = self.y.is_eq(&other.y)?;
         x_equal.and(&y_equal)
@@ -196,7 +201,7 @@ where
     fn conditional_enforce_equal(
         &self,
         other: &Self,
-        condition: &Boolean<<P::BaseField as Field>::BasePrimeField>,
+        condition: &Boolean<ConstraintF>,
     ) -> Result<(), SynthesisError> {
         let x_equal = self.x.is_eq(&other.x)?;
         let y_equal = self.y.is_eq(&other.y)?;
@@ -218,7 +223,7 @@ where
     fn conditional_enforce_not_equal(
         &self,
         other: &Self,
-        condition: &Boolean<<P::BaseField as Field>::BasePrimeField>,
+        condition: &Boolean<ConstraintF>,
     ) -> Result<(), SynthesisError> {
         let is_equal = self.is_eq(other)?;
         is_equal
@@ -259,7 +264,7 @@ mod test_non_zero_affine {
         // (1 + 2 + ... + 2^9) G
 
         let sum_a = {
-            let mut a = ProjectiveVar::<G1Config, FpVar<Fq>>::new(
+            let mut a = ProjectiveVar::<G1Config, Fq, FpVar<Fq>>::new(
                 x.clone(),
                 y.clone(),
                 FpVar::Constant(Fq::one()),
@@ -283,7 +288,7 @@ mod test_non_zero_affine {
         };
 
         let sum_b = {
-            let mut a = NonZeroAffineVar::<G1Config, FpVar<Fq>>::new(x, y);
+            let mut a = NonZeroAffineVar::<G1Config, Fq, FpVar<Fq>>::new(x, y);
 
             let mut double_sequence = Vec::new();
             double_sequence.push(a.clone());
@@ -318,7 +323,7 @@ mod test_non_zero_affine {
 
         // The following code tests `double_and_add`.
         let sum_a = {
-            let a = ProjectiveVar::<G1Config, FpVar<Fq>>::new(
+            let a = ProjectiveVar::<G1Config, Fq, FpVar<Fq>>::new(
                 x.clone(),
                 y.clone(),
                 FpVar::Constant(Fq::one()),
@@ -336,7 +341,7 @@ mod test_non_zero_affine {
         };
 
         let sum_b = {
-            let a = NonZeroAffineVar::<G1Config, FpVar<Fq>>::new(x, y);
+            let a = NonZeroAffineVar::<G1Config, Fq, FpVar<Fq>>::new(x, y);
 
             let mut cur = a.double().unwrap();
             for _ in 1..10 {
@@ -362,16 +367,16 @@ mod test_non_zero_affine {
             AllocatedFp::<Fq>::new_witness(cs.clone(), || Ok(G1Config::GENERATOR.y)).unwrap(),
         );
 
-        let a = NonZeroAffineVar::<G1Config, FpVar<Fq>>::new(x, y);
+        let a = NonZeroAffineVar::<G1Config, Fq, FpVar<Fq>>::new(x, y);
 
         let n = 10;
 
-        let a_multiples: Vec<NonZeroAffineVar<G1Config, FpVar<Fq>>> =
+        let a_multiples: Vec<NonZeroAffineVar<G1Config, Fq, FpVar<Fq>>> =
             std::iter::successors(Some(a.clone()), |acc| Some(acc.add_unchecked(&a).unwrap()))
                 .take(n)
                 .collect();
 
-        let all_equal: Vec<NonZeroAffineVar<G1Config, FpVar<Fq>>> = (0..n / 2)
+        let all_equal: Vec<NonZeroAffineVar<G1Config, Fq, FpVar<Fq>>> = (0..n / 2)
             .map(|i| {
                 a_multiples[i]
                     .add_unchecked(&a_multiples[n - i - 1])

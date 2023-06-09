@@ -1,6 +1,7 @@
 use ark_ec::{
     bls12::{Bls12Config, G1Prepared, G2Prepared, TwistType},
     short_weierstrass::Affine as GroupAffine,
+    CurveConfig,
 };
 use ark_ff::{BitIteratorBE, Field, One};
 use ark_relations::r1cs::{Namespace, SynthesisError};
@@ -13,25 +14,47 @@ use crate::{
 use core::fmt::Debug;
 
 /// Represents a projective point in G1.
-pub type G1Var<P> = ProjectiveVar<<P as Bls12Config>::G1Config, FpVar<<P as Bls12Config>::Fp>>;
+pub type G1Var<P> = ProjectiveVar<
+    <P as Bls12Config>::G1Config,
+    <<<P as Bls12Config>::G1Config as CurveConfig>::BaseField as Field>::BasePrimeField,
+    FpVar<<P as Bls12Config>::Fp>,
+>;
 
 /// Represents an affine point on G1. Should be used only for comparison and
 /// when a canonical representation of a point is required, and not for
 /// arithmetic.
-pub type G1AffineVar<P> = AffineVar<<P as Bls12Config>::G1Config, FpVar<<P as Bls12Config>::Fp>>;
+pub type G1AffineVar<P> = AffineVar<
+    <P as Bls12Config>::G1Config,
+    <<<P as Bls12Config>::G1Config as CurveConfig>::BaseField as Field>::BasePrimeField,
+    FpVar<<P as Bls12Config>::Fp>,
+>;
 
 /// Represents a projective point in G2.
-pub type G2Var<P> = ProjectiveVar<<P as Bls12Config>::G2Config, Fp2G<P>>;
+pub type G2Var<P> = ProjectiveVar<
+    <P as Bls12Config>::G2Config,
+    <<<P as Bls12Config>::G2Config as CurveConfig>::BaseField as Field>::BasePrimeField,
+    Fp2G<P>,
+>;
 /// Represents an affine point on G2. Should be used only for comparison and
 /// when a canonical representation of a point is required, and not for
 /// arithmetic.
-pub type G2AffineVar<P> = AffineVar<<P as Bls12Config>::G2Config, Fp2G<P>>;
+pub type G2AffineVar<P> = AffineVar<
+    <P as Bls12Config>::G2Config,
+    <<<P as Bls12Config>::G2Config as CurveConfig>::BaseField as Field>::BasePrimeField,
+    Fp2G<P>,
+>;
 
 /// Represents the cached precomputation that can be performed on a G1 element
 /// which enables speeding up pairing computation.
 #[derive(Derivative)]
 #[derivative(Clone(bound = "G1Var<P>: Clone"), Debug(bound = "G1Var<P>: Debug"))]
-pub struct G1PreparedVar<P: Bls12Config>(pub AffineVar<P::G1Config, FpVar<P::Fp>>);
+pub struct G1PreparedVar<P: Bls12Config>(
+    pub  AffineVar<
+        P::G1Config,
+        <<<P as Bls12Config>::G1Config as CurveConfig>::BaseField as Field>::BasePrimeField,
+        FpVar<P::Fp>,
+    >,
+);
 
 impl<P: Bls12Config> G1PreparedVar<P> {
     /// Returns the value assigned to `self` in the underlying constraint
