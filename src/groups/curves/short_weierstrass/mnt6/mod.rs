@@ -1,9 +1,6 @@
-use ark_ec::{
-    mnt6::{
-        g2::{AteAdditionCoefficients, AteDoubleCoefficients},
-        G1Prepared, G2Prepared, MNT6Config,
-    },
-    CurveConfig,
+use ark_ec::mnt6::{
+    g2::{AteAdditionCoefficients, AteDoubleCoefficients},
+    G1Prepared, G2Prepared, MNT6Config,
 };
 use ark_ff::Field;
 use ark_relations::r1cs::{Namespace, SynthesisError};
@@ -18,18 +15,10 @@ use crate::{
 use core::borrow::Borrow;
 
 /// Represents a projective point in G1.
-pub type G1Var<P> = ProjectiveVar<
-    <P as MNT6Config>::G1Config,
-    <<<P as MNT6Config>::G1Config as CurveConfig>::BaseField as Field>::BasePrimeField,
-    FpVar<<P as MNT6Config>::Fp>,
->;
+pub type G1Var<P> = ProjectiveVar<<P as MNT6Config>::G1Config, FpVar<<P as MNT6Config>::Fp>>;
 
 /// Represents a projective point in G2.
-pub type G2Var<P> = ProjectiveVar<
-    <P as MNT6Config>::G2Config,
-    <<<P as MNT6Config>::G1Config as CurveConfig>::BaseField as Field>::BasePrimeField,
-    Fp3G<P>,
->;
+pub type G2Var<P> = ProjectiveVar<<P as MNT6Config>::G2Config, Fp3G<P>>;
 
 /// Represents the cached precomputation that can be performed on a G1 element
 /// which enables speeding up pairing computation.

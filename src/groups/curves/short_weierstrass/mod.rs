@@ -2,7 +2,7 @@ use ark_ec::{
     short_weierstrass::{
         Affine as SWAffine, Projective as SWProjective, SWCurveConfig as SWModelParameters,
     },
-    AffineRepr, CurveGroup,
+    AffineRepr, CurveConfig, CurveGroup,
 };
 use ark_ff::{BigInteger, BitIteratorBE, Field, One, PrimeField, Zero};
 use ark_relations::r1cs::{ConstraintSystemRef, Namespace, SynthesisError};
@@ -39,7 +39,7 @@ pub mod non_zero_affine;
 #[derive(Derivative)]
 #[derivative(Debug, Clone)]
 #[must_use]
-pub struct ProjectiveVar<
+pub struct GenericProjectiveVar<
     P: SWModelParameters,
     ConstraintF: PrimeField,
     F: FieldVar<P::BaseField, ConstraintF>,
@@ -58,11 +58,14 @@ pub struct ProjectiveVar<
     _params_cf: PhantomData<ConstraintF>,
 }
 
+pub type ProjectiveVar<P, F> =
+    GenericProjectiveVar<P, <<P as CurveConfig>::BaseField as Field>::BasePrimeField, F>;
+
 /// An affine representation of a curve point.
 #[derive(Derivative)]
 #[derivative(Debug, Clone)]
 #[must_use]
-pub struct AffineVar<
+pub struct GenericAffineVar<
     P: SWModelParameters,
     ConstraintF: PrimeField,
     F: FieldVar<P::BaseField, ConstraintF>,
@@ -79,7 +82,10 @@ pub struct AffineVar<
     _params: PhantomData<P>,
 }
 
-impl<P, ConstraintF, F> AffineVar<P, ConstraintF, F>
+pub type AffineVar<P, F> =
+    GenericAffineVar<P, <<P as CurveConfig>::BaseField as Field>::BasePrimeField, F>;
+
+impl<P, ConstraintF, F> GenericAffineVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -105,7 +111,7 @@ where
     }
 }
 
-impl<P, ConstraintF, F> ToConstraintFieldGadget<ConstraintF> for AffineVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> ToConstraintFieldGadget<ConstraintF> for GenericAffineVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -124,7 +130,7 @@ where
     }
 }
 
-impl<P, ConstraintF, F> R1CSVar<ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> R1CSVar<ConstraintF> for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -149,7 +155,7 @@ where
 }
 
 impl<P: SWModelParameters, ConstraintF: PrimeField, F: FieldVar<P::BaseField, ConstraintF>>
-    ProjectiveVar<P, ConstraintF, F>
+    GenericProjectiveVar<P, ConstraintF, F>
 where
     for<'a> &'a F: FieldOpsBounds<'a, P::BaseField, F>,
 {
@@ -166,13 +172,13 @@ where
 
     /// Convert this point into affine form.
     #[tracing::instrument(target = "r1cs")]
-    pub fn to_affine(&self) -> Result<AffineVar<P, ConstraintF, F>, SynthesisError> {
+    pub fn to_affine(&self) -> Result<GenericAffineVar<P, ConstraintF, F>, SynthesisError> {
         if self.is_constant() {
             let point = self.value()?.into_affine();
             let x = F::new_constant(ConstraintSystemRef::None, point.x)?;
             let y = F::new_constant(ConstraintSystemRef::None, point.y)?;
             let infinity = Boolean::constant(point.infinity);
-            Ok(AffineVar::new(x, y, infinity))
+            Ok(GenericAffineVar::new(x, y, infinity))
         } else {
             let cs = self.cs();
             let infinity = self.is_zero()?;
@@ -196,7 +202,7 @@ where
             let x = infinity.select(&zero_x, &non_zero_x)?;
             let y = infinity.select(&zero_y, &non_zero_y)?;
 
-            Ok(AffineVar::new(x, y, infinity))
+            Ok(GenericAffineVar::new(x, y, infinity))
         }
     }
 
@@ -281,7 +287,7 @@ where
         let y = (&yy_p_bz3 * &yy_m_bz3) + &xx3_p_azz * b3_xz_pairs; // 17, 26, 27
         let z = (&yy_p_bz3 * &yz_pairs) + xy_pairs * xx3_p_azz; // 31, 32, 33
 
-        Ok(ProjectiveVar::new(x, y, z))
+        Ok(GenericProjectiveVar::new(x, y, z))
     }
 
     /// Computes a scalar multiplication with a little-endian scalar of size
@@ -377,7 +383,8 @@ where
     }
 }
 
-impl<P, ConstraintF, F> CurveVar<SWProjective<P>, ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> CurveVar<SWProjective<P>, ConstraintF>
+    for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -573,7 +580,8 @@ where
     }
 }
 
-impl<P, ConstraintF, F> ToConstraintFieldGadget<ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> ToConstraintFieldGadget<ConstraintF>
+    for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -604,13 +612,13 @@ where
 }
 
 impl_bounded_ops!(
-    ProjectiveVar<P, ConstraintF, F>,
+    GenericProjectiveVar<P, ConstraintF, F>,
     SWProjective<P>,
     Add,
     add,
     AddAssign,
     add_assign,
-    |mut this: &'a ProjectiveVar<P, ConstraintF, F>, mut other: &'a ProjectiveVar<P, ConstraintF, F>| {
+    |mut this: &'a GenericProjectiveVar<P, ConstraintF, F>, mut other: &'a GenericProjectiveVar<P, ConstraintF, F>| {
         // Implement complete addition for Short Weierstrass curves, following
         // the complete addition formula from Renes-Costello-Batina 2015
         // (https://eprint.iacr.org/2015/1060).
@@ -670,32 +678,33 @@ impl_bounded_ops!(
             let y = (&yy_p_bzz3 * &yy_m_bzz3) + &xx3_p_azz * b3_xz_pairs; // 24, 36, 37, 38
             let z = (&yy_p_bzz3 * &yz_pairs) + xy_pairs * xx3_p_azz; // 41, 42, 43
 
-            ProjectiveVar::new(x, y, z)
+            GenericProjectiveVar::new(x, y, z)
         }
 
     },
-    |this: &'a ProjectiveVar<P, ConstraintF, F>, other: SWProjective<P>| {
-        this + ProjectiveVar::constant(other)
+    |this: &'a GenericProjectiveVar<P, ConstraintF, F>, other: SWProjective<P>| {
+        this + GenericProjectiveVar::constant(other)
     },
     (ConstraintF: PrimeField, F: FieldVar<P::BaseField, ConstraintF>, P: SWModelParameters),
     for <'b> &'b F: FieldOpsBounds<'b, P::BaseField, F>,
 );
 
 impl_bounded_ops!(
-    ProjectiveVar<P, ConstraintF, F>,
+    GenericProjectiveVar<P, ConstraintF, F>,
     SWProjective<P>,
     Sub,
     sub,
     SubAssign,
     sub_assign,
-    |this: &'a ProjectiveVar<P, ConstraintF, F>, other: &'a ProjectiveVar<P, ConstraintF, F>| this + other.negate().unwrap(),
-    |this: &'a ProjectiveVar<P, ConstraintF, F>, other: SWProjective<P>| this - ProjectiveVar::constant(other),
+    |this: &'a GenericProjectiveVar<P, ConstraintF, F>, other: &'a GenericProjectiveVar<P, ConstraintF, F>| this + other.negate().unwrap(),
+    |this: &'a GenericProjectiveVar<P, ConstraintF, F>, other: SWProjective<P>| this - GenericProjectiveVar::constant(other),
     (ConstraintF: PrimeField, F: FieldVar<P::BaseField, ConstraintF>, P: SWModelParameters),
     for <'b> &'b F: FieldOpsBounds<'b, P::BaseField, F>
 );
 
-impl<'a, P, ConstraintF, F> GroupOpsBounds<'a, SWProjective<P>, ProjectiveVar<P, ConstraintF, F>>
-    for ProjectiveVar<P, ConstraintF, F>
+impl<'a, P, ConstraintF, F>
+    GroupOpsBounds<'a, SWProjective<P>, GenericProjectiveVar<P, ConstraintF, F>>
+    for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -704,8 +713,9 @@ where
 {
 }
 
-impl<'a, P, ConstraintF, F> GroupOpsBounds<'a, SWProjective<P>, ProjectiveVar<P, ConstraintF, F>>
-    for &'a ProjectiveVar<P, ConstraintF, F>
+impl<'a, P, ConstraintF, F>
+    GroupOpsBounds<'a, SWProjective<P>, GenericProjectiveVar<P, ConstraintF, F>>
+    for &'a GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -714,7 +724,7 @@ where
 {
 }
 
-impl<P, ConstraintF, F> CondSelectGadget<ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> CondSelectGadget<ConstraintF> for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -736,7 +746,7 @@ where
     }
 }
 
-impl<P, ConstraintF, F> EqGadget<ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> EqGadget<ConstraintF> for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -783,7 +793,8 @@ where
     }
 }
 
-impl<P, ConstraintF, F> AllocVar<SWAffine<P>, ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> AllocVar<SWAffine<P>, ConstraintF>
+    for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -803,7 +814,8 @@ where
     }
 }
 
-impl<P, ConstraintF, F> AllocVar<SWProjective<P>, ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> AllocVar<SWProjective<P>, ConstraintF>
+    for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -915,7 +927,7 @@ fn div2(limbs: &mut [u64]) {
     }
 }
 
-impl<P, ConstraintF, F> ToBitsGadget<ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> ToBitsGadget<ConstraintF> for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,
@@ -943,7 +955,7 @@ where
     }
 }
 
-impl<P, ConstraintF, F> ToBytesGadget<ConstraintF> for ProjectiveVar<P, ConstraintF, F>
+impl<P, ConstraintF, F> ToBytesGadget<ConstraintF> for GenericProjectiveVar<P, ConstraintF, F>
 where
     P: SWModelParameters,
     ConstraintF: PrimeField,

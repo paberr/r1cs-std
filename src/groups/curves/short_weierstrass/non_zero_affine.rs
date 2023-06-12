@@ -42,8 +42,8 @@ where
 
     /// Converts self into a non-zero projective point.
     #[tracing::instrument(target = "r1cs", skip(self))]
-    pub fn into_projective(&self) -> ProjectiveVar<P, ConstraintF, F> {
-        ProjectiveVar::new(self.x.clone(), self.y.clone(), F::one())
+    pub fn into_projective(&self) -> GenericProjectiveVar<P, ConstraintF, F> {
+        GenericProjectiveVar::new(self.x.clone(), self.y.clone(), F::one())
     }
 
     /// Performs an addition without checking that other != ±self.
@@ -239,7 +239,7 @@ mod test_non_zero_affine {
         eq::EqGadget,
         fields::fp::{AllocatedFp, FpVar},
         groups::{
-            curves::short_weierstrass::{non_zero_affine::NonZeroAffineVar, ProjectiveVar},
+            curves::short_weierstrass::{non_zero_affine::NonZeroAffineVar, GenericProjectiveVar},
             CurveVar,
         },
         R1CSVar,
@@ -264,7 +264,7 @@ mod test_non_zero_affine {
         // (1 + 2 + ... + 2^9) G
 
         let sum_a = {
-            let mut a = ProjectiveVar::<G1Config, Fq, FpVar<Fq>>::new(
+            let mut a = GenericProjectiveVar::<G1Config, Fq, FpVar<Fq>>::new(
                 x.clone(),
                 y.clone(),
                 FpVar::Constant(Fq::one()),
@@ -323,7 +323,7 @@ mod test_non_zero_affine {
 
         // The following code tests `double_and_add`.
         let sum_a = {
-            let a = ProjectiveVar::<G1Config, Fq, FpVar<Fq>>::new(
+            let a = GenericProjectiveVar::<G1Config, Fq, FpVar<Fq>>::new(
                 x.clone(),
                 y.clone(),
                 FpVar::Constant(Fq::one()),
