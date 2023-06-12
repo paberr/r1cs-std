@@ -2,7 +2,7 @@ use crate::fields::{fp2::Fp2Var, fp6_3over2::Fp6Var, quadratic_extension::*, Fie
 use ark_ff::{
     fields::{fp12_2over3over2::*, Field},
     fp6_3over2::Fp6Config,
-    QuadExtConfig,
+    Fp2Config as Fp2ConfigT, QuadExtConfig,
 };
 use ark_relations::r1cs::SynthesisError;
 
@@ -13,7 +13,12 @@ pub type Fp12Var<P> = QuadExtVar<Fp6Var<<P as Fp12Config>::Fp6Config>, Fp12Confi
 
 type Fp2Config<P> = <<P as Fp12Config>::Fp6Config as Fp6Config>::Fp2Config;
 
-impl<P: Fp12Config> QuadExtVarConfig<Fp6Var<P::Fp6Config>> for Fp12ConfigWrapper<P> {
+impl<P: Fp12Config>
+    QuadExtVarConfig<
+        Fp6Var<P::Fp6Config>,
+        <<<P as ark_ff::Fp12Config>::Fp6Config as ark_ff::Fp6Config>::Fp2Config as Fp2ConfigT>::Fp,
+    > for Fp12ConfigWrapper<P>
+{
     fn mul_base_field_var_by_frob_coeff(fe: &mut Fp6Var<P::Fp6Config>, power: usize) {
         fe.c0 *= Self::FROBENIUS_COEFF_C1[power % Self::DEGREE_OVER_BASE_PRIME_FIELD];
         fe.c1 *= Self::FROBENIUS_COEFF_C1[power % Self::DEGREE_OVER_BASE_PRIME_FIELD];
