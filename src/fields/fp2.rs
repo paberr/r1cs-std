@@ -9,8 +9,11 @@ use super::nonnative::NonNativeFieldVar;
 /// A quadratic extension field constructed over a prime field.
 /// This is the R1CS equivalent of `ark_ff::Fp2<P>`.
 pub type Fp2Var<P> = QuadExtVar<FpVar<<P as Fp2Config>::Fp>, Fp2ConfigWrapper<P>>;
-pub type NonNativeFp2Var<P, ConstraintF> =
-    QuadExtVar<NonNativeFieldVar<<P as Fp2Config>::Fp, ConstraintF>, Fp2ConfigWrapper<P>>;
+pub type NonNativeFp2Var<P, ConstraintF> = GenericQuadExtVar<
+    NonNativeFieldVar<<P as Fp2Config>::Fp, ConstraintF>,
+    ConstraintF,
+    Fp2ConfigWrapper<P>,
+>;
 
 impl<P: Fp2Config> QuadExtVarConfig<FpVar<P::Fp>, P::Fp> for Fp2ConfigWrapper<P> {
     fn mul_base_field_var_by_frob_coeff(fe: &mut FpVar<P::Fp>, power: usize) {
