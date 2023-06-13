@@ -6,34 +6,55 @@ use ark_ff::{BitIteratorBE, Field, One};
 use ark_relations::r1cs::{Namespace, SynthesisError};
 
 use crate::{
-    fields::{fp::FpVar, fp2::Fp2Var, FieldVar},
+    fields::{
+        fp::FpVar,
+        fp2::{Fp2Var, GenericFp2Var},
+        FieldVar,
+    },
     groups::curves::short_weierstrass::*,
     Vec,
 };
 use core::fmt::Debug;
 
 /// Represents a projective point in G1.
-pub type G1Var<P> = ProjectiveVar<<P as Bls12Config>::G1Config, FpVar<<P as Bls12Config>::Fp>>;
+pub type G1Var<P, ConstraintF = <P as Bls12Config>::Fp, BF = FpVar<<P as Bls12Config>::Fp>> =
+    GenericProjectiveVar<<P as Bls12Config>::G1Config, ConstraintF, BF>;
 
 /// Represents an affine point on G1. Should be used only for comparison and
 /// when a canonical representation of a point is required, and not for
 /// arithmetic.
-pub type G1AffineVar<P> = AffineVar<<P as Bls12Config>::G1Config, FpVar<<P as Bls12Config>::Fp>>;
+pub type G1AffineVar<P, ConstraintF = <P as Bls12Config>::Fp, BF = FpVar<<P as Bls12Config>::Fp>> =
+    GenericAffineVar<<P as Bls12Config>::G1Config, ConstraintF, BF>;
 
 /// Represents a projective point in G2.
-pub type G2Var<P> = ProjectiveVar<<P as Bls12Config>::G2Config, Fp2G<P>>;
+pub type G2Var<P, ConstraintF = <P as Bls12Config>::Fp, BF = Fp2Var<P>> =
+    GenericProjectiveVar<<P as Bls12Config>::G2Config, ConstraintF, BF>;
 /// Represents an affine point on G2. Should be used only for comparison and
 /// when a canonical representation of a point is required, and not for
 /// arithmetic.
-pub type G2AffineVar<P> = AffineVar<<P as Bls12Config>::G2Config, Fp2G<P>>;
+pub type G2AffineVar<P, ConstraintF = <P as Bls12Config>::Fp, BF = Fp2Var<P>> =
+    GenericAffineVar<<P as Bls12Config>::G2Config, ConstraintF, BF>;
 
 /// Represents the cached precomputation that can be performed on a G1 element
 /// which enables speeding up pairing computation.
 #[derive(Derivative)]
 #[derivative(Clone(bound = "G1Var<P>: Clone"), Debug(bound = "G1Var<P>: Debug"))]
-pub struct G1PreparedVar<P: Bls12Config>(pub AffineVar<P::G1Config, FpVar<P::Fp>>);
+pub struct G1PreparedVar<
+    P: Bls12Config,
+    ConstraintF: PrimeField = <P as Bls12Config>::Fp,
+    BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF> = FpVar<<P as Bls12Config>::Fp>,
+>(pub GenericAffineVar<P::G1Config, ConstraintF, BF>)
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>;
 
-impl<P: Bls12Config> G1PreparedVar<P> {
+impl<
+        P: Bls12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF>,
+    > G1PreparedVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     /// Returns the value assigned to `self` in the underlying constraint
     /// system.
     pub fn value(&self) -> Result<G1Prepared<P>, SynthesisError> {
@@ -48,15 +69,22 @@ impl<P: Bls12Config> G1PreparedVar<P> {
     }
 
     /// Constructs `Self` from a `G1Var`.
-    pub fn from_group_var(q: &G1Var<P>) -> Result<Self, SynthesisError> {
+    pub fn from_group_var(q: &G1Var<P, ConstraintF, BF>) -> Result<Self, SynthesisError> {
         let g = q.to_affine()?;
         Ok(Self(g))
     }
 }
 
-impl<P: Bls12Config> AllocVar<G1Prepared<P>, P::Fp> for G1PreparedVar<P> {
+impl<
+        P: Bls12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF>,
+    > AllocVar<G1Prepared<P>, ConstraintF> for G1PreparedVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     fn new_variable<T: Borrow<G1Prepared<P>>>(
-        cs: impl Into<Namespace<P::Fp>>,
+        cs: impl Into<Namespace<ConstraintF>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
     ) -> Result<Self, SynthesisError> {
@@ -64,22 +92,29 @@ impl<P: Bls12Config> AllocVar<G1Prepared<P>, P::Fp> for G1PreparedVar<P> {
         let cs = ns.cs();
         let g1_prep = f().map(|b| b.borrow().0);
 
-        let x = FpVar::new_variable(ark_relations::ns!(cs, "x"), || g1_prep.map(|g| g.x), mode)?;
-        let y = FpVar::new_variable(ark_relations::ns!(cs, "y"), || g1_prep.map(|g| g.y), mode)?;
+        let x = BF::new_variable(ark_relations::ns!(cs, "x"), || g1_prep.map(|g| g.x), mode)?;
+        let y = BF::new_variable(ark_relations::ns!(cs, "y"), || g1_prep.map(|g| g.y), mode)?;
         let infinity = Boolean::new_variable(
             ark_relations::ns!(cs, "inf"),
             || g1_prep.map(|g| g.infinity),
             mode,
         )?;
-        let g = AffineVar::new(x, y, infinity);
+        let g = GenericAffineVar::new(x, y, infinity);
         Ok(Self(g))
     }
 }
 
-impl<P: Bls12Config> ToBytesGadget<P::Fp> for G1PreparedVar<P> {
+impl<
+        P: Bls12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF>,
+    > ToBytesGadget<ConstraintF> for G1PreparedVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     #[inline]
     #[tracing::instrument(target = "r1cs")]
-    fn to_bytes(&self) -> Result<Vec<UInt8<P::Fp>>, SynthesisError> {
+    fn to_bytes(&self) -> Result<Vec<UInt8<ConstraintF>>, SynthesisError> {
         let mut bytes = self.0.x.to_bytes()?;
         let y_bytes = self.0.y.to_bytes()?;
         let inf_bytes = self.0.infinity.to_bytes()?;
@@ -89,7 +124,7 @@ impl<P: Bls12Config> ToBytesGadget<P::Fp> for G1PreparedVar<P> {
     }
 
     #[tracing::instrument(target = "r1cs")]
-    fn to_non_unique_bytes(&self) -> Result<Vec<UInt8<P::Fp>>, SynthesisError> {
+    fn to_non_unique_bytes(&self) -> Result<Vec<UInt8<ConstraintF>>, SynthesisError> {
         let mut bytes = self.0.x.to_non_unique_bytes()?;
         let y_bytes = self.0.y.to_non_unique_bytes()?;
         let inf_bytes = self.0.infinity.to_non_unique_bytes()?;
@@ -99,8 +134,8 @@ impl<P: Bls12Config> ToBytesGadget<P::Fp> for G1PreparedVar<P> {
     }
 }
 
-type Fp2G<P> = Fp2Var<<P as Bls12Config>::Fp2Config>;
-type LCoeff<P> = (Fp2G<P>, Fp2G<P>);
+type Fp2G<P, ConstraintF, BF> = GenericFp2Var<<P as Bls12Config>::Fp2Config, ConstraintF, BF>;
+type LCoeff<P, ConstraintF, BF> = (Fp2G<P, ConstraintF, BF>, Fp2G<P, ConstraintF, BF>);
 /// Represents the cached precomputation that can be performed on a G2 element
 /// which enables speeding up pairing computation.
 #[derive(Derivative)]
@@ -108,15 +143,28 @@ type LCoeff<P> = (Fp2G<P>, Fp2G<P>);
     Clone(bound = "Fp2Var<P::Fp2Config>: Clone"),
     Debug(bound = "Fp2Var<P::Fp2Config>: Debug")
 )]
-pub struct G2PreparedVar<P: Bls12Config> {
+pub struct G2PreparedVar<
+    P: Bls12Config,
+    ConstraintF: PrimeField = <P as Bls12Config>::Fp,
+    BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF> = FpVar<<P as Bls12Config>::Fp>,
+> where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     #[doc(hidden)]
-    pub ell_coeffs: Vec<LCoeff<P>>,
+    pub ell_coeffs: Vec<LCoeff<P, ConstraintF, BF>>,
 }
 
-impl<P: Bls12Config> AllocVar<G2Prepared<P>, P::Fp> for G2PreparedVar<P> {
+impl<
+        P: Bls12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF>,
+    > AllocVar<G2Prepared<P>, ConstraintF> for G2PreparedVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     #[tracing::instrument(target = "r1cs", skip(cs, f, mode))]
     fn new_variable<T: Borrow<G2Prepared<P>>>(
-        cs: impl Into<Namespace<P::Fp>>,
+        cs: impl Into<Namespace<ConstraintF>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
     ) -> Result<Self, SynthesisError> {
@@ -171,10 +219,17 @@ impl<P: Bls12Config> AllocVar<G2Prepared<P>, P::Fp> for G2PreparedVar<P> {
     }
 }
 
-impl<P: Bls12Config> ToBytesGadget<P::Fp> for G2PreparedVar<P> {
+impl<
+        P: Bls12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF>,
+    > ToBytesGadget<ConstraintF> for G2PreparedVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     #[inline]
     #[tracing::instrument(target = "r1cs")]
-    fn to_bytes(&self) -> Result<Vec<UInt8<P::Fp>>, SynthesisError> {
+    fn to_bytes(&self) -> Result<Vec<UInt8<ConstraintF>>, SynthesisError> {
         let mut bytes = Vec::new();
         for coeffs in &self.ell_coeffs {
             bytes.extend_from_slice(&coeffs.0.to_bytes()?);
@@ -184,7 +239,7 @@ impl<P: Bls12Config> ToBytesGadget<P::Fp> for G2PreparedVar<P> {
     }
 
     #[tracing::instrument(target = "r1cs")]
-    fn to_non_unique_bytes(&self) -> Result<Vec<UInt8<P::Fp>>, SynthesisError> {
+    fn to_non_unique_bytes(&self) -> Result<Vec<UInt8<ConstraintF>>, SynthesisError> {
         let mut bytes = Vec::new();
         for coeffs in &self.ell_coeffs {
             bytes.extend_from_slice(&coeffs.0.to_non_unique_bytes()?);
@@ -194,10 +249,19 @@ impl<P: Bls12Config> ToBytesGadget<P::Fp> for G2PreparedVar<P> {
     }
 }
 
-impl<P: Bls12Config> G2PreparedVar<P> {
+impl<
+        P: Bls12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P as Bls12Config>::Fp, ConstraintF>,
+    > G2PreparedVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     /// Constructs `Self` from a `G2Var`.
     #[tracing::instrument(target = "r1cs")]
-    pub fn from_group_var(q: &G2Var<P>) -> Result<Self, SynthesisError> {
+    pub fn from_group_var(
+        q: &G2Var<P, ConstraintF, Fp2G<P, ConstraintF, BF>>,
+    ) -> Result<Self, SynthesisError> {
         let q = q.to_affine()?;
         let two_inv = P::Fp::one().double().inverse().unwrap();
         // Enforce that `q` is not the point at infinity.
@@ -217,7 +281,10 @@ impl<P: Bls12Config> G2PreparedVar<P> {
     }
 
     #[tracing::instrument(target = "r1cs")]
-    fn double(r: &mut G2AffineVar<P>, two_inv: &P::Fp) -> Result<LCoeff<P>, SynthesisError> {
+    fn double(
+        r: &mut G2AffineVar<P, ConstraintF, Fp2G<P, ConstraintF, BF>>,
+        two_inv: &P::Fp,
+    ) -> Result<LCoeff<P, ConstraintF, BF>, SynthesisError> {
         let a = r.y.inverse()?;
         let mut b = r.x.square()?;
         let b_tmp = b.clone();
@@ -241,7 +308,10 @@ impl<P: Bls12Config> G2PreparedVar<P> {
     }
 
     #[tracing::instrument(target = "r1cs")]
-    fn add(r: &mut G2AffineVar<P>, q: &G2AffineVar<P>) -> Result<LCoeff<P>, SynthesisError> {
+    fn add(
+        r: &mut G2AffineVar<P, ConstraintF, Fp2G<P, ConstraintF, BF>>,
+        q: &G2AffineVar<P, ConstraintF, Fp2G<P, ConstraintF, BF>>,
+    ) -> Result<LCoeff<P, ConstraintF, BF>, SynthesisError> {
         let a = (&q.x - &r.x).inverse()?;
         let b = &q.y - &r.y;
         let c = &a * &b;

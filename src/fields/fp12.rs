@@ -1,40 +1,78 @@
-use crate::fields::{fp2::Fp2Var, fp6_3over2::Fp6Var, quadratic_extension::*, FieldVar};
+use crate::fields::{
+    fp6_3over2::{Fp6Var, GenericFp6Var},
+    quadratic_extension::*,
+    FieldVar,
+};
 use ark_ff::{
     fields::{fp12_2over3over2::*, Field},
     fp6_3over2::Fp6Config,
-    Fp2Config as Fp2ConfigT, QuadExtConfig,
+    Fp2Config as Fp2ConfigT, PrimeField, QuadExtConfig,
 };
 use ark_relations::r1cs::SynthesisError;
+
+use super::{fp2::GenericFp2Var, FieldOpsBounds};
 
 /// A degree-12 extension field constructed as the tower of a
 /// quadratic extension over a cubic extension over a quadratic extension field.
 /// This is the R1CS equivalent of `ark_ff::fp12_2over3over2::Fp12<P>`.
 pub type Fp12Var<P> = QuadExtVar<Fp6Var<<P as Fp12Config>::Fp6Config>, Fp12ConfigWrapper<P>>;
+pub type GenericFp12Var<P, ConstraintF, BF> = GenericQuadExtVar<
+    GenericFp6Var<<P as Fp12Config>::Fp6Config, ConstraintF, BF>,
+    ConstraintF,
+    Fp12ConfigWrapper<P>,
+>;
 
 type Fp2Config<P> = <<P as Fp12Config>::Fp6Config as Fp6Config>::Fp2Config;
 
-impl<P: Fp12Config>
-    QuadExtVarConfig<
-        Fp6Var<P::Fp6Config>,
-        <<<P as ark_ff::Fp12Config>::Fp6Config as ark_ff::Fp6Config>::Fp2Config as Fp2ConfigT>::Fp,
-    > for Fp12ConfigWrapper<P>
+impl<
+        P: Fp12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<
+            <<<P as Fp12Config>::Fp6Config as Fp6Config>::Fp2Config as Fp2ConfigT>::Fp,
+            ConstraintF,
+        >,
+    > QuadExtVarConfig<GenericFp6Var<P::Fp6Config, ConstraintF, BF>, ConstraintF>
+    for Fp12ConfigWrapper<P>
+where
+    for<'a> &'a BF: FieldOpsBounds<
+        'a,
+        <<<P as Fp12Config>::Fp6Config as Fp6Config>::Fp2Config as Fp2ConfigT>::Fp,
+        BF,
+    >,
 {
-    fn mul_base_field_var_by_frob_coeff(fe: &mut Fp6Var<P::Fp6Config>, power: usize) {
+    fn mul_base_field_var_by_frob_coeff(
+        fe: &mut GenericFp6Var<P::Fp6Config, ConstraintF, BF>,
+        power: usize,
+    ) {
         fe.c0 *= Self::FROBENIUS_COEFF_C1[power % Self::DEGREE_OVER_BASE_PRIME_FIELD];
         fe.c1 *= Self::FROBENIUS_COEFF_C1[power % Self::DEGREE_OVER_BASE_PRIME_FIELD];
         fe.c2 *= Self::FROBENIUS_COEFF_C1[power % Self::DEGREE_OVER_BASE_PRIME_FIELD];
     }
 }
 
-impl<P: Fp12Config> Fp12Var<P> {
+impl<
+        P: Fp12Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<
+            <<<P as Fp12Config>::Fp6Config as Fp6Config>::Fp2Config as Fp2ConfigT>::Fp,
+            ConstraintF,
+        >,
+    > GenericFp12Var<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<
+        'a,
+        <<<P as Fp12Config>::Fp6Config as Fp6Config>::Fp2Config as Fp2ConfigT>::Fp,
+        BF,
+    >,
+{
     /// Multiplies by a sparse element of the form `(c0 = (c0, c1, 0), c1 = (0,
     /// d1, 0))`.
     #[inline]
     pub fn mul_by_014(
         &self,
-        c0: &Fp2Var<Fp2Config<P>>,
-        c1: &Fp2Var<Fp2Config<P>>,
-        d1: &Fp2Var<Fp2Config<P>>,
+        c0: &GenericFp2Var<Fp2Config<P>, ConstraintF, BF>,
+        c1: &GenericFp2Var<Fp2Config<P>, ConstraintF, BF>,
+        d1: &GenericFp2Var<Fp2Config<P>, ConstraintF, BF>,
     ) -> Result<Self, SynthesisError> {
         let v0 = self.c0.mul_by_c0_c1_0(&c0, &c1)?;
         let v1 = self.c1.mul_by_0_c1_0(&d1)?;
@@ -49,14 +87,14 @@ impl<P: Fp12Config> Fp12Var<P> {
     #[inline]
     pub fn mul_by_034(
         &self,
-        c0: &Fp2Var<Fp2Config<P>>,
-        d0: &Fp2Var<Fp2Config<P>>,
-        d1: &Fp2Var<Fp2Config<P>>,
+        c0: &GenericFp2Var<Fp2Config<P>, ConstraintF, BF>,
+        d0: &GenericFp2Var<Fp2Config<P>, ConstraintF, BF>,
+        d1: &GenericFp2Var<Fp2Config<P>, ConstraintF, BF>,
     ) -> Result<Self, SynthesisError> {
         let a0 = &self.c0.c0 * c0;
         let a1 = &self.c0.c1 * c0;
         let a2 = &self.c0.c2 * c0;
-        let a = Fp6Var::new(a0, a1, a2);
+        let a = GenericFp6Var::new(a0, a1, a2);
         let b = self.c1.mul_by_c0_c1_0(&d0, &d1)?;
 
         let c0 = c0 + d0;
@@ -138,8 +176,8 @@ impl<P: Fp12Config> Fp12Var<P> {
 
             // z5 = 3 * t3 + 2 * z5
             let c1_c2 = (&t3 + z5).double()? + &t3;
-            let c0 = Fp6Var::new(c0_c0, c0_c1, c0_c2);
-            let c1 = Fp6Var::new(c1_c0, c1_c1, c1_c2);
+            let c0 = GenericFp6Var::new(c0_c0, c0_c1, c0_c2);
+            let c1 = GenericFp6Var::new(c1_c0, c1_c1, c1_c2);
 
             Ok(Self::new(c0, c1))
         } else {

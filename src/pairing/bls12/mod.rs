@@ -3,33 +3,41 @@ use ark_relations::r1cs::SynthesisError;
 use super::PairingVar as PG;
 
 use crate::{
-    fields::{fp::FpVar, fp12::Fp12Var, fp2::Fp2Var, FieldVar},
+    fields::{fp::FpVar, fp12::GenericFp12Var, fp2::GenericFp2Var, FieldOpsBounds, FieldVar},
     groups::bls12::{G1AffineVar, G1PreparedVar, G1Var, G2PreparedVar, G2Var},
 };
 use ark_ec::bls12::{Bls12, Bls12Config, TwistType};
-use ark_ff::BitIteratorBE;
+use ark_ff::{BitIteratorBE, PrimeField};
 use ark_std::marker::PhantomData;
 
 /// Specifies the constraints for computing a pairing in a BLS12 bilinear group.
-pub struct PairingVar<P: Bls12Config>(PhantomData<P>);
+pub struct PairingVar<
+    P: Bls12Config,
+    ConstraintF: PrimeField = <P as Bls12Config>::Fp,
+    BF: FieldVar<P::Fp, ConstraintF> = FpVar<ConstraintF>,
+>(PhantomData<(P, ConstraintF, BF)>);
 
-type Fp2V<P> = Fp2Var<<P as Bls12Config>::Fp2Config>;
+type Fp2V<P, ConstraintF, BF> = GenericFp2Var<<P as Bls12Config>::Fp2Config, ConstraintF, BF>;
 
-impl<P: Bls12Config> PairingVar<P> {
+impl<P: Bls12Config, ConstraintF: PrimeField, BF: FieldVar<P::Fp, ConstraintF>>
+    PairingVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
     // Evaluate the line function at point p.
     #[tracing::instrument(target = "r1cs")]
     fn ell(
-        f: &mut Fp12Var<P::Fp12Config>,
-        coeffs: &(Fp2V<P>, Fp2V<P>),
-        p: &G1AffineVar<P>,
+        f: &mut GenericFp12Var<P::Fp12Config, ConstraintF, BF>,
+        coeffs: &(Fp2V<P, ConstraintF, BF>, Fp2V<P, ConstraintF, BF>),
+        p: &G1AffineVar<P, ConstraintF, BF>,
     ) -> Result<(), SynthesisError> {
-        let zero = FpVar::<P::Fp>::zero();
+        let zero = BF::zero();
 
         match P::TWIST_TYPE {
             TwistType::M => {
                 let c0 = coeffs.0.clone();
                 let mut c1 = coeffs.1.clone();
-                let c2 = Fp2V::<P>::new(p.y.clone(), zero);
+                let c2 = Fp2V::<P, ConstraintF, BF>::new(p.y.clone(), zero);
 
                 c1.c0 *= &p.x;
                 c1.c1 *= &p.x;
@@ -37,7 +45,7 @@ impl<P: Bls12Config> PairingVar<P> {
                 Ok(())
             },
             TwistType::D => {
-                let c0 = Fp2V::<P>::new(p.y.clone(), zero);
+                let c0 = Fp2V::<P, ConstraintF, BF>::new(p.y.clone(), zero);
                 let mut c1 = coeffs.0.clone();
                 let c2 = coeffs.1.clone();
 
@@ -50,7 +58,9 @@ impl<P: Bls12Config> PairingVar<P> {
     }
 
     #[tracing::instrument(target = "r1cs")]
-    fn exp_by_x(f: &Fp12Var<P::Fp12Config>) -> Result<Fp12Var<P::Fp12Config>, SynthesisError> {
+    fn exp_by_x(
+        f: &GenericFp12Var<P::Fp12Config, ConstraintF, BF>,
+    ) -> Result<GenericFp12Var<P::Fp12Config, ConstraintF, BF>, SynthesisError> {
         let mut result = f.optimized_cyclotomic_exp(P::X)?;
         if P::X_IS_NEGATIVE {
             result = result.unitary_inverse()?;
@@ -59,12 +69,16 @@ impl<P: Bls12Config> PairingVar<P> {
     }
 }
 
-impl<P: Bls12Config> PG<Bls12<P>, P::Fp> for PairingVar<P> {
-    type G1Var = G1Var<P>;
-    type G2Var = G2Var<P>;
-    type G1PreparedVar = G1PreparedVar<P>;
-    type G2PreparedVar = G2PreparedVar<P>;
-    type GTVar = Fp12Var<P::Fp12Config>;
+impl<P: Bls12Config, ConstraintF: PrimeField, BF: FieldVar<P::Fp, ConstraintF>>
+    PG<Bls12<P>, ConstraintF> for PairingVar<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <P as Bls12Config>::Fp, BF>,
+{
+    type G1Var = G1Var<P, ConstraintF, BF>;
+    type G2Var = G2Var<P, ConstraintF, Fp2V<P, ConstraintF, BF>>;
+    type G1PreparedVar = G1PreparedVar<P, ConstraintF, BF>;
+    type G2PreparedVar = G2PreparedVar<P, ConstraintF, BF>;
+    type GTVar = GenericFp12Var<P::Fp12Config, ConstraintF, BF>;
 
     #[tracing::instrument(target = "r1cs")]
     fn miller_loop(

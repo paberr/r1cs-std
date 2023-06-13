@@ -1,20 +1,35 @@
 use crate::fields::{cubic_extension::*, fp2::*};
 use ark_ff::{
     fields::{fp6_3over2::*, Fp2},
-    CubicExtConfig,
+    CubicExtConfig, Fp2Config, PrimeField,
 };
 use ark_relations::r1cs::SynthesisError;
 use ark_std::ops::MulAssign;
+
+use super::{FieldOpsBounds, FieldVar};
 
 /// A sextic extension field constructed as the tower of a
 /// cubic extension over a quadratic extension field.
 /// This is the R1CS equivalent of `ark_ff::fp6_3over3::Fp6<P>`.
 pub type Fp6Var<P> = CubicExtVar<Fp2Var<<P as Fp6Config>::Fp2Config>, Fp6ConfigWrapper<P>>;
+pub type GenericFp6Var<P, ConstraintF, BF> = CubicExtVar<
+    GenericFp2Var<<P as Fp6Config>::Fp2Config, ConstraintF, BF>,
+    Fp6ConfigWrapper<P>,
+    ConstraintF,
+>;
 
-impl<P: Fp6Config> CubicExtVarConfig<Fp2Var<P::Fp2Config>> for Fp6ConfigWrapper<P> {
+impl<
+        P: Fp6Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P::Fp2Config as Fp2Config>::Fp, ConstraintF>,
+    > CubicExtVarConfig<GenericFp2Var<P::Fp2Config, ConstraintF, BF>, ConstraintF>
+    for Fp6ConfigWrapper<P>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <<P as Fp6Config>::Fp2Config as Fp2Config>::Fp, BF>,
+{
     fn mul_base_field_vars_by_frob_coeff(
-        c1: &mut Fp2Var<P::Fp2Config>,
-        c2: &mut Fp2Var<P::Fp2Config>,
+        c1: &mut GenericFp2Var<P::Fp2Config, ConstraintF, BF>,
+        c2: &mut GenericFp2Var<P::Fp2Config, ConstraintF, BF>,
         power: usize,
     ) {
         *c1 *= Self::FROBENIUS_COEFF_C1[power % Self::DEGREE_OVER_BASE_PRIME_FIELD];
@@ -22,9 +37,19 @@ impl<P: Fp6Config> CubicExtVarConfig<Fp2Var<P::Fp2Config>> for Fp6ConfigWrapper<
     }
 }
 
-impl<P: Fp6Config> Fp6Var<P> {
+impl<
+        P: Fp6Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P::Fp2Config as Fp2Config>::Fp, ConstraintF>,
+    > GenericFp6Var<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <<P as Fp6Config>::Fp2Config as Fp2Config>::Fp, BF>,
+{
     /// Multiplies `self` by a sparse element which has `c0 == c2 == zero`.
-    pub fn mul_by_0_c1_0(&self, c1: &Fp2Var<P::Fp2Config>) -> Result<Self, SynthesisError> {
+    pub fn mul_by_0_c1_0(
+        &self,
+        c1: &GenericFp2Var<P::Fp2Config, ConstraintF, BF>,
+    ) -> Result<Self, SynthesisError> {
         // Karatsuba multiplication
         // v0 = a0 * b0 = 0
 
@@ -54,8 +79,8 @@ impl<P: Fp6Config> Fp6Var<P> {
     /// Multiplies `self` by a sparse element which has `c2 == zero`.
     pub fn mul_by_c0_c1_0(
         &self,
-        c0: &Fp2Var<P::Fp2Config>,
-        c1: &Fp2Var<P::Fp2Config>,
+        c0: &GenericFp2Var<P::Fp2Config, ConstraintF, BF>,
+        c1: &GenericFp2Var<P::Fp2Config, ConstraintF, BF>,
     ) -> Result<Self, SynthesisError> {
         let v0 = &self.c0 * c0;
         let v1 = &self.c1 * c1;
@@ -79,7 +104,14 @@ impl<P: Fp6Config> Fp6Var<P> {
     }
 }
 
-impl<P: Fp6Config> MulAssign<Fp2<P::Fp2Config>> for Fp6Var<P> {
+impl<
+        P: Fp6Config,
+        ConstraintF: PrimeField,
+        BF: FieldVar<<P::Fp2Config as Fp2Config>::Fp, ConstraintF>,
+    > MulAssign<Fp2<P::Fp2Config>> for GenericFp6Var<P, ConstraintF, BF>
+where
+    for<'a> &'a BF: FieldOpsBounds<'a, <<P as Fp6Config>::Fp2Config as Fp2Config>::Fp, BF>,
+{
     fn mul_assign(&mut self, other: Fp2<P::Fp2Config>) {
         self.c0 *= other;
         self.c1 *= other;
